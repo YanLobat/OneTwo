@@ -18,11 +18,15 @@ client.lpush('messages',message , err => {
 		console.log(err);
 	}
 });
-client.lpush('connections','generator' , err => {
-	if (err) {
-		console.log(err);
-	}
+client.lpop('connections', (err, reply) => {
+	console.log(reply);
+	client.lpush('connections','generator' , err => {
+		if (err) {
+			console.log(err);
+		}
+	});
 });
+
 
 function Generator(cnt) {
 	this.cnt = cnt;
