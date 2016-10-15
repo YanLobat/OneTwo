@@ -1,0 +1,28 @@
+{
+  "name": "onetwotrip",
+  "version": "1.0.0",
+  "description": "Test task",
+  "main": "server.js",
+  "dependencies": {
+    "async": "^2.1.1",
+    "redis": "^2.6.2"
+  },
+  "devDependencies": {},
+  "scripts": {
+    "start": "node server.js"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/YanLobat/OneTwo.git"
+  },
+  "keywords": [
+    "node.js",
+    "redis"
+  ],
+  "author": "YanLobat",
+  "license": "ISC",
+  "bugs": {
+    "url": "https://github.com/YanLobat/OneTwo/issues"
+  },
+  "homepage": "https://github.com/YanLobat/OneTwo#readme"
+}

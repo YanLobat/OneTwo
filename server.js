@@ -1,60 +1,40 @@
 'use strict';
 
-const http = require('http');
-const redis = require('redis');
+var http = require('http');
+var redis = require('redis');
+var async = require('async');
 
-let messagesCount;
-const client = redis
-	.createClient({host: '127.0.0.1', port: '6379'});
-//тут условие проверки генератора
-client.lpop('connections', (err, reply) => {
+var messagesCount;
+var client = redis.createClient({host: '127.0.0.1', port: '6379'});
+
+//take first element from connections list to check its type
+client.lpop('connections', function(err, reply) {
 	if (reply === 'generator') {
-		client.rpush('connections','reciever' , err => {
+		client.rpush('connections','reciever' , function(err) {
 			if (err) {
 				console.log(err);
 			}
-			client.lpush('connections','generator' , err => {
+			client.lpush('connections','generator' , function(err) {
 				if (err) {
 					console.log(err);
 				}
 			});
 		});
 		var recieverTimer = setInterval(function() {
-			client.rpop('messages', (err, reply) => {
+			client.rpop('messages', function(err, reply) {
 				if (err || !reply) {
 					return;
 				}
 				client.get('last_seen', (err, reply) => {
-					let diff = Date.now() - reply;
+					var diff = Date.now() - reply;
 					if (diff > 500){
 						client.set('last_seen', Date.now(), redis.print);
 						clearInterval(recieverTimer);
 						//не забыть выпилить ресивер
-						client.rpop('messages',(err, reply) => {
-							messagesCount = reply||0;
-							client.rpush('messages', messagesCount, err => {
-								if (err) {
-									console.log(err);
-								}
-							});
-							const generator = new Generator(messagesCount);
-							let message;
-							setInterval(function() {
-								message = generator.getMessage();
-								client.rpush('messages',message , err => {
-									if (err) {
-										console.log(err);
-									}
-									client.set('last_seen', Date.now(), redis.print);
-								});
-							}, 200);
-							
-							client.lpush('connections','generator' , err => {
-								if (err) {
-									console.log(err);
-								}
-							});
+						client.rpop('connections', function(err, reply) {
+
 						});
+						generatorCreation();
 					}
 				});
 				eventHandler(reply, (err, msg) => {
@@ -78,34 +58,36 @@ client.lpop('connections', (err, reply) => {
 		}, 300);
 	}
 	else {
-		client.rpop('messages',(err, reply) => {
-			messagesCount = reply||0;
-			client.rpush('messages', messagesCount, err => {
-				if (err) {
-					console.log(err);
-				}
-			});
-			const generator = new Generator(messagesCount);
-			let message;
-			setInterval(function() {
-				message = generator.getMessage();
-				client.rpush('messages',message , err => {
-					if (err) {
-						console.log(err);
-					}
-					client.set('last_seen', Date.now(), redis.print);
-				});
-			}, 200);
-			
-			client.lpush('connections','generator' , err => {
-				if (err) {
-					console.log(err);
-				}
-			});
-		});
+		generatorCreation();
 	}
 });
-
+function generatorCreation() {
+	client.rpop('messages',(err, reply) => {
+		messagesCount = reply||0;
+		client.rpush('messages', messagesCount, err => {
+			if (err) {
+				console.log(err);
+			}
+		});
+		var generator = new Generator(messagesCount);
+		var message;
+		setInterval(function() {
+			message = generator.getMessage();
+			client.rpush('messages',message , err => {
+				if (err) {
+					console.log(err);
+				}
+				client.set('last_seen', Date.now(), redis.print);
+			});
+		}, 200);
+		
+		client.lpush('connections','generator' , err => {
+			if (err) {
+				console.log(err);
+			}
+		});
+	});
+}
 function Generator(cnt) {
 	this.cnt = cnt;
 	this.getMessage = function(){
