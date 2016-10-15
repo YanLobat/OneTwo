@@ -5,19 +5,7 @@ const redis = require('redis');
 
 let messagesCount;
 const client = redis
-	.createClient({host: '127.0.0.1', port: '6379'})
-	.on('error', err => {
-		console.log(client.isConnected);
-	});
-client.monitor(function (err, res) {
-    console.log("Entering monitoring mode.");
-});
-
-client.on("end", function (time, args, raw_reply) {
-	console.log('lol');
-    console.log(time + ": " + args); // 1458910076.446514:['set', 'foo', 'bar']
-});
-
+	.createClient({host: '127.0.0.1', port: '6379'});
 //тут условие проверки генератора
 client.lpop('connections', (err, reply) => {
 	if (reply === 'generator') {
@@ -31,15 +19,45 @@ client.lpop('connections', (err, reply) => {
 				}
 			});
 		});
-		setInterval(function() {
-			client.rpop('messages', (err, reply) =>{
-				if (err) {
-					console.log(err);
+		var recieverTimer = setInterval(function() {
+			client.rpop('messages', (err, reply) => {
+				if (err || !reply) {
+					return;
 				}
-				eventHandler(reply, (err, msg) => {
-					if (!msg) {
-						return;
+				client.get('last_seen', (err, reply) => {
+					let diff = Date.now() - reply;
+					if (diff > 500){
+						client.set('last_seen', Date.now(), redis.print);
+						clearInterval(recieverTimer);
+						//не забыть выпилить ресивер
+						client.rpop('messages',(err, reply) => {
+							messagesCount = reply||0;
+							client.rpush('messages', messagesCount, err => {
+								if (err) {
+									console.log(err);
+								}
+							});
+							const generator = new Generator(messagesCount);
+							let message;
+							setInterval(function() {
+								message = generator.getMessage();
+								client.rpush('messages',message , err => {
+									if (err) {
+										console.log(err);
+									}
+									client.set('last_seen', Date.now(), redis.print);
+								});
+							}, 200);
+							
+							client.lpush('connections','generator' , err => {
+								if (err) {
+									console.log(err);
+								}
+							});
+						});
 					}
+				});
+				eventHandler(reply, (err, msg) => {
 					if (err) {
 						client.rpush('errored', reply, (err, reply) => {
 							if (err) {
@@ -57,11 +75,10 @@ client.lpop('connections', (err, reply) => {
 				});
 					
 			});
-		}, 0);
+		}, 300);
 	}
 	else {
 		client.rpop('messages',(err, reply) => {
-			console.log(reply);
 			messagesCount = reply||0;
 			client.rpush('messages', messagesCount, err => {
 				if (err) {
@@ -72,13 +89,13 @@ client.lpop('connections', (err, reply) => {
 			let message;
 			setInterval(function() {
 				message = generator.getMessage();
-				console.log(message);
 				client.rpush('messages',message , err => {
 					if (err) {
 						console.log(err);
 					}
+					client.set('last_seen', Date.now(), redis.print);
 				});
-			}, 10);
+			}, 200);
 			
 			client.lpush('connections','generator' , err => {
 				if (err) {
