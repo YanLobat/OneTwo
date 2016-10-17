@@ -5,11 +5,13 @@
   "main": "server.js",
   "dependencies": {
     "async": "^2.1.1",
+    "minimist": "^1.2.0",
     "redis": "^2.6.2"
   },
   "devDependencies": {},
   "scripts": {
-    "start": "node server.js"
+    "start": "node server.js",
+    "errors": "node server.js --getErrors"
   },
   "repository": {
     "type": "git",

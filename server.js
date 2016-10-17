@@ -1,92 +1,147 @@
 'use strict';
 
-var http = require('http');
 var redis = require('redis');
 var async = require('async');
+var argv = require('minimist')(process.argv.slice(2));
+var fs = require('fs');
 
-var messagesCount;
 var client = redis.createClient({host: '127.0.0.1', port: '6379'});
 
-//take first element from connections list to check its type
-client.lpop('connections', function(err, reply) {
-	if (reply === 'generator') {
-		client.rpush('connections','reciever' , function(err) {
-			if (err) {
-				console.log(err);
-			}
-			client.lpush('connections','generator' , function(err) {
-				if (err) {
-					console.log(err);
-				}
-			});
-		});
-		var recieverTimer = setInterval(function() {
-			client.rpop('messages', function(err, reply) {
-				if (err || !reply) {
-					return;
-				}
+if (argv.getErrors) {
+	getErrors();
+}
+else {
+	normalWork();
+}
+
+function getErrors() {
+	client.lpop('errored', function(err, reply) {
+		if (err) {
+			throw new Error(err);
+		}
+		if (reply) {
+			fs.appendFileSync('errors.log', reply+'\r\n','utf-8');
+			console.log(reply);
+			getErrors();
+		}
+		else {
+			process.exit()
+		}
+	});
+}
+
+function normalWork() {
+	//take first element from connections list to check its type
+	client.lindex('connections', 0, function(err, type) {
+		if (type === 'generator') {
+			var recieverTimer = setInterval(function() {
 				client.get('last_seen', (err, reply) => {
 					var diff = Date.now() - reply;
-					if (diff > 500){
-						client.set('last_seen', Date.now(), redis.print);
-						clearInterval(recieverTimer);
-						//не забыть выпилить ресивер
-						client.rpop('connections', function(err, reply) {
-
-						});
-						generatorCreation();
-					}
-				});
-				eventHandler(reply, (err, msg) => {
-					if (err) {
-						client.rpush('errored', reply, (err, reply) => {
-							if (err) {
-								console.log(err);
-							}
+					if (diff > 520){
+						client.set('last_seen', Date.now(), function(err) {
+							client.lindex('messages',-1, function(err, reply) {
+								if (reply) {
+									generatorCreation(reply);
+								}
+								else {
+									client.lindex('treated', -1, function(err, reply) {
+										generatorCreation(reply);
+									});
+								}
+							});
+							
+							client.rpop('connections', function(err, reply) {
+								if (err) {
+									throw new Error(err);
+								}
+								clearInterval(recieverTimer);
+							});
 						});
 					}
 					else {
-						client.rpush('treated', reply, (err, reply) => {
-							if (err) {
-								console.log(err);
+						async.waterfall([
+							function(callback) {
+								client.lpop('messages', function(err, reply) {
+									if (err) {
+										return callback(err);
+									}
+									if (!reply) {
+										return callback(null, null);
+									}
+									return callback(null, reply);
+								});
+							},
+							function(message, callback) {
+								if (message !== null) {
+									eventHandler(message, function(err, msg) {
+										if (err) {
+											client.rpush('errored',msg , function(err, reply) {
+												if (err) {
+													return callback(err);
+												}
+												callback(null, msg);
+											});
+										}
+										else {
+											client.rpush('treated', msg, function(err, reply) {
+												if (err) {
+													return callback(err);
+												}
+												callback(null, msg);
+											});
+										}
+									});
+								}
 							}
+						], function(err, results) {
+							if (err) {
+								throw new Error(err);
+							}
+
 						});
 					}
 				});
-					
+			}, 10);
+			client.rpush('connections','reciever' , function(err) {
+				if (err) {
+					throw new Error(err);
+				}
 			});
-		}, 300);
-	}
-	else {
-		generatorCreation();
-	}
-});
-function generatorCreation() {
-	client.rpop('messages',(err, reply) => {
-		messagesCount = reply||0;
-		client.rpush('messages', messagesCount, err => {
-			if (err) {
-				console.log(err);
-			}
-		});
-		var generator = new Generator(messagesCount);
+		}
+		else {
+			//if there is not generator yet or it was broken we will create a new one
+			client.lpush('connections','generator' , function(err) {
+				if (err) {
+					throw new Error(err);
+				}
+				generatorCreation(0);
+			});
+			
+		}
+	});
+}
+
+
+function generatorCreation(count) {
+		var generator = new Generator(count);
 		var message;
 		setInterval(function() {
-			message = generator.getMessage();
-			client.rpush('messages',message , err => {
-				if (err) {
-					console.log(err);
+			async.parallel([
+				function(callback) {
+					client.set('last_seen', Date.now(), function(err) {	
+						callback(null, null);
+					});
+				},
+				function(callback) {
+					message = generator.getMessage();
+					client.rpush('messages',message , function(err) {
+						if (err) {
+							throw new Error(err);
+						}
+					});
 				}
-				client.set('last_seen', Date.now(), redis.print);
-			});
-		}, 200);
-		
-		client.lpush('connections','generator' , err => {
-			if (err) {
-				console.log(err);
-			}
-		});
-	});
+			]);
+		}, 500);	
 }
 function Generator(cnt) {
 	this.cnt = cnt;
