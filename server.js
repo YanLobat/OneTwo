@@ -4,9 +4,11 @@ var redis = require('redis');
 var async = require('async');
 var argv = require('minimist')(process.argv.slice(2));
 var fs = require('fs');
+var Redlock = require('redlock');
 
 var client = redis.createClient({host: '127.0.0.1', port: '6379'});
 
+var redlock = new Redlock([client]);
 if (argv.getErrors) {
 	getErrors();
 }
